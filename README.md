@@ -3,5 +3,5 @@
 The Mauritius Deuterium Telescope GPU pipeline implemented with a
 cuBLAS-based X-engine.
 
-* Pipeline **A**: implemented using the custom X-engine.
-* Pipeline **B**: implemented using the cuBLAS.
+* Pipeline **A**: FX correlator implemented using the custom X-engine.
+* Pipeline **B**: implemented using cuBLAS.

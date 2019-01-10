@@ -1,8 +1,9 @@
 /*
- *  CUDA kernel for polyphase filter kernel in F-engine working with
- *  custom X-engine.
+ *  CUDA kernels for pre-filters and for calculating the polyphase
+ *  structure prior to the FFT kernel(s), for pipeline with custom
+ *  X-engine.
  *
- *  Copyright (C) 2018 Nitish Ragoomundun
+ *  Copyright (C) 2019 Nitish Ragoomundun
  *
  *  This program is free software: you can redistribute it and/or modify
  *  it under the terms of the GNU Affero General Public License as
@@ -21,6 +22,55 @@
 
 #include <cuda.h>
 #include <cufft.h>
+
+
+/*
+ *  GPU kernel to compute FIR Filter.
+ *
+ *  Ntaps: number of taps,
+ *  Nchannels: number of channels in output,
+ *  Filter: array of size Ntaps x Nchannels which will hold coefficients
+ *          of FIR filter.
+ */
+__global__ void WindowedSinc(int Ntaps, long Nchannels, float *Filter)
+{
+  long idx = threadIdx.x + blockIdx.x*blockDim.x;
+
+  /*  Temporary variables to prevent redundant computation  */
+  float tmp1, tmp2, tmp_filter, tmp_window;
+
+  if (idx < Ntaps*Nchannels)
+  {
+
+    /*
+     *  Filter: Sinc
+     *
+     *  sinc( ( channel - (Ntaps x Nchannels)/2 ) / Nchannels )
+     *
+     */
+    tmp1 = (idx - 0.5f*Ntaps*Nchannels) / Nchannels;
+
+    if ( tmp1 == 0.0f )  /*  To prevent division by 0  */
+      tmp_filter = 1.0f ;
+    else
+      tmp_filter = sinpif( tmp1 ) / ( d_PI * tmp1 );
+
+
+    /*
+     *  Window: Exact Blackman
+     *
+     *  a0 - a1cos( 2 x PI x i / (Ntaps x Nchannels) ) + a2cos( 4 x PI x i / (Ntaps x Nchannels) )
+     *
+     */
+    tmp2 = 2.0f*idx / (Ntaps*Nchannels);
+    tmp_window = 0.42659071f - 0.49656062f*cospif(tmp2) + 0.07684867f*cospif(2.0f*tmp2);
+
+
+    /*  Write Windowed Sinc to global memory array  */
+    Filter[idx] = tmp_filter * tmp_window;
+  }
+}
+
 
 
 /*
