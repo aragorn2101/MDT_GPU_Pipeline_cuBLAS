@@ -20,7 +20,6 @@
  */
 
 #include <cuda.h>
-#include <cufft.h>
 
 /*
  *  GPU kernel to compute FIR filter coefficients.

@@ -19,7 +19,6 @@
  */
 
 #include <cuda.h>
-#include <cufft.h>
 
 /*
  *  GPU kernel to re-order array data
