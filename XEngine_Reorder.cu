@@ -20,44 +20,49 @@
 
 #include <cuda.h>
 
+
 /*
  *  GPU kernel to re-order array data
  *
- *  Nelements: number of elements in the array x number of polarisations
- *             this flexibility allows to process for a single
- *             polarisation if needed,
- *  Npol: number of polarisations,
+ *  NpolxNelements: number of elements in the array x number of polarisations
+ *                  this flexibility allows to process for a single
+ *                  polarisation if needed,
  *  Nchannels: number of frequency channels in each spectrum,
  *  FOutput: array output from F-engine,
  *  XInput: array to be input to cuBLAS kernel.
  *
  *  Example call:
  *
- *  NumThreadx = (Npol*Nelements >= 32) ? 32 : (Npol*Nelements);
+ *  NumThreadx = 32;
  *  NumThready = 32;
  *  NumThreadz = 1;
- *  NumBlockx  = Nspectra;
+ *  NumBlockx  = (Npol*Nelements)/NumThreadx + (((Npol*Nelements)%NumThreadx != 0) ? 1 : 0);
  *  NumBlocky  = Nchannels/NumThready + ((Nchannels%NumThready != 0) ? 1 : 0);
- *  NumBlockz  = (Npol*Nelements)/NumThreadx + (((Npol*Nelements)%NumThreadx != 0) ? 1 : 0);
+ *  NumBlockz  = Nspectra;
  *
  *  ReorderXInput<<< dim3(NumBlockx,NumBlocky,NumBlockz), dim3(NumThreadx,NumThready,NumThreadz) >>>(Npol*Nelements, Nchannels, d_FOutput, d_XInput);
  *
  */
-__global__ void ReorderXInput(int Nelements, int Nchannels, cufftComplex *FOutput, cuComplex *XInput)
+__global__ void ReorderXInput(int NpolxNelements, int Nchannels, cufftComplex *FOutput, cuComplex *XInput)
 {
   __shared__ cufftComplex sh_Temp[32][32];
+  int channelIdx, elementIdx;
 
-  int channelIdx = blockIdx.y*blockDim.y + threadIdx.y;
-  int elementIdx = blockIdx.z*blockDim.x + threadIdx.x;
-  int FOutputIdx = (blockIdx.x*Nelements + elementIdx)*Nchannels + channelIdx;
-  int XInputIdx  = (channelIdx*gridDim.x + blockIdx.x)*Nelements + elementIdx;
 
-  if (channelIdx < Nchannels && elementIdx < Nelements)
-  {
-    // Copy data from output of F-engine
-    sh_Temp[threadIdx.x][threadIdx.y] = FOutput[FOutputIdx];
+  /*  Read data from output of F-engine  */
+  channelIdx = blockIdx.y*blockDim.y + threadIdx.x;
+  elementIdx = blockIdx.x*blockDim.x + threadIdx.y;
 
-    // Copy data to input for X-engine
-    XInput[XInputIdx] = sh_Temp[threadIdx.x][threadIdx.y];
-  }
+  if (channelIdx < Nchannels && elementIdx < NpolxNelements)
+    sh_Temp[threadIdx.x][threadIdx.y] = FOutput[ (blockIdx.z*NpolxNelements + elementIdx)*Nchannels + channelIdx ];
+
+  /*  Make sure that all data reads are completed before proceeding  */
+  __syncthreads();
+
+  /*  Write data to input array for X-engine  */
+  channelIdx = blockIdx.y*blockDim.y + threadIdx.y;
+  elementIdx = blockIdx.x*blockDim.x + threadIdx.x;
+
+  if (channelIdx < Nchannels && elementIdx < NpolxNelements)
+    XInput[ (channelIdx*gridDim.z + blockIdx.z)*NpolxNelements + elementIdx ] = sh_Temp[threadIdx.y][threadIdx.x];
 }
